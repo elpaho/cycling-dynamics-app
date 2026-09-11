@@ -18,7 +18,7 @@ from version import VERSION
 
 GITHUB_USER = "elpaho"
 GITHUB_REPO = "cycling-dynamics-app"
-GITHUB_BRANCH = "main"
+GITHUB_BRANCH = "master"
 
 RAW_BASE = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}"
 VERSION_URL = f"{RAW_BASE}/version.py"
