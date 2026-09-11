@@ -56,6 +56,7 @@ class HeartRateScanner(QThread):
         super().__init__(parent)
         self.duration_s = duration_s
         self._node = None
+        self._scanner = None
 
     def run(self):
         try:
@@ -72,7 +73,7 @@ class HeartRateScanner(QThread):
         try:
             self._node = Node()
             self._node.set_network_key(0x00, ANTPLUS_NETWORK_KEY)
-            scanner = Scanner(self._node, device_type=DeviceType.HeartRate.value)
+            self._scanner = Scanner(self._node, device_type=DeviceType.HeartRate.value)
 
             seen = set()
 
@@ -82,7 +83,7 @@ class HeartRateScanner(QThread):
                     seen.add(device_id)
                     self.device_found.emit(device_id)
 
-            scanner.on_found = on_found
+            self._scanner.on_found = on_found
 
             # node.start() je blocking - auto-stop preko odvojenog timera
             stopper = threading.Timer(self.duration_s, self._safe_stop)
@@ -92,10 +93,6 @@ class HeartRateScanner(QThread):
                 self._node.start()
             finally:
                 stopper.cancel()
-                try:
-                    scanner.close_channel()
-                except Exception:
-                    pass
         except Exception as e:
             detail = str(e).strip()
             message = f"{type(e).__name__}: {detail}" if detail else type(e).__name__
@@ -104,6 +101,15 @@ class HeartRateScanner(QThread):
             self.scan_finished.emit()
 
     def _safe_stop(self):
+        # REDOSLIJED JE BITAN: kanal se mora zatvoriti dok je node/driver jos
+        # otvoren. Ako se prvo zatvori node (sto zatvara USB driver), naredba
+        # za zatvaranje kanala stize na vec mrtav driver -> CHANNEL_IN_WRONG_STATE
+        # i dongle ostaje u losem stanju za sljedece spajanje.
+        try:
+            if self._scanner:
+                self._scanner.close_channel()
+        except Exception:
+            pass
         try:
             if self._node:
                 self._node.stop()
