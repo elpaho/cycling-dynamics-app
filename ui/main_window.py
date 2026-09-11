@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         self.power_status = QPushButton("Power: Simulator (dev)")
         self.power_status.setEnabled(False)
         self.hr_status = QPushButton("HR: connecting...")
-        self.hr_status.setEnabled(False)
+        self.hr_status.clicked.connect(self._retry_hr)
         pairing_row.addWidget(self.power_status)
         pairing_row.addWidget(self.hr_status)
         root.addLayout(pairing_row)
@@ -238,14 +238,25 @@ class MainWindow(QMainWindow):
         self.power_sim.data_updated.connect(self._on_power_data)
 
         # ANT+ HR - stvarni hardver
+        self.hr_receiver = None
+        self._start_hr()
+
+    def _start_hr(self):
+        self.hr_status.setText("HR: connecting...")
         self.hr_receiver = HeartRateReceiver(device_id=0)
         self.hr_receiver.device_found.connect(lambda: self.hr_status.setText("HR: connected"))
         self.hr_receiver.error.connect(self._on_hr_error)
         self.hr_receiver.hr_updated.connect(self._on_hr_data)
         self.hr_receiver.start()
 
+    def _retry_hr(self):
+        # QThread se ne moze ponovno pokrenuti nakon sto zavrsi, treba nova instanca
+        if self.hr_receiver is not None and self.hr_receiver.isRunning():
+            self.hr_receiver.stop()
+        self._start_hr()
+
     def _on_hr_error(self, message: str):
-        self.hr_status.setText("HR: error")
+        self.hr_status.setText("HR: error - tap to retry")
         print(f"[HR] {message}")
 
     # ------------------------------------------------------ accumulators

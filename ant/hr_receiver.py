@@ -48,7 +48,9 @@ class HeartRateReceiver(QThread):
             self._running = True
             self._node.start()  # blocking dok se ne pozove node.stop()
         except Exception as e:
-            self.error.emit(str(e))
+            detail = str(e).strip()
+            message = f"{type(e).__name__}: {detail}" if detail else type(e).__name__
+            self.error.emit(message)
         finally:
             self._cleanup()
 
