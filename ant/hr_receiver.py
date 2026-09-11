@@ -9,6 +9,39 @@ standardnom openant primjeru za HeartRate device profile.
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
+def _force_bundled_libusb_backend():
+    """
+    pyusb inace trazi libusb-1.0.dll preko ctypes.util.find_library(), sto na
+    Windowsu cesto ne uspije naci DLL cak i kad je Zadig driver ispravno
+    postavljen (vidjeno u praksi - libusb1 backend vraca None dok libusb0
+    vidi 0 uredjaja jer je vezan za drugi tip drivera).
+
+    libusb-package nosi kompajliranu libusb-1.0 biblioteku unutar samog
+    Python paketa (instalira se preko requirements.txt na SVAKOM racunalu,
+    ne treba rucno kopiranje u System32). Ovdje presrecemo pyusb-ov
+    get_backend() da uvijek koristi tu bundlanu putanju.
+    """
+    try:
+        import libusb_package
+        import usb.backend.libusb1 as libusb1
+
+        lib_path = libusb_package.get_library_path()
+        if not lib_path:
+            return  # paket nije uspio ugraditi binarku za ovu platformu/arh.
+
+        _original_get_backend = libusb1.get_backend
+
+        def _patched_get_backend(find_library=None, **kwargs):
+            return _original_get_backend(find_library=lambda x: lib_path, **kwargs)
+
+        libusb1.get_backend = _patched_get_backend
+    except ImportError:
+        pass  # libusb-package nije instaliran - pyusb ce probati default potragu
+
+
+_force_bundled_libusb_backend()
+
+
 class HeartRateReceiver(QThread):
     hr_updated = pyqtSignal(int)
     device_found = pyqtSignal()
