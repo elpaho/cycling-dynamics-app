@@ -42,6 +42,79 @@ def _force_bundled_libusb_backend():
 _force_bundled_libusb_backend()
 
 
+class HeartRateScanner(QThread):
+    """
+    Skenira ANT+ HR uređaje u dometu bez vezivanja na jedan konkretan -
+    koristi openant Scanner klasu koja sluša sve broadcast pakete filtrirane
+    po device_type=HeartRate. Automatski se zaustavlja nakon duration_s.
+    """
+    device_found = pyqtSignal(int)   # device_id
+    scan_finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, duration_s: float = 6.0, parent=None):
+        super().__init__(parent)
+        self.duration_s = duration_s
+        self._node = None
+
+    def run(self):
+        try:
+            from openant.easy.node import Node
+            from openant.devices import ANTPLUS_NETWORK_KEY
+            from openant.devices.scanner import Scanner
+            from openant.devices.common import DeviceType
+        except ImportError as e:
+            self.error.emit(f"openant nije instaliran: {e}")
+            return
+
+        import threading
+
+        try:
+            self._node = Node()
+            self._node.set_network_key(0x00, ANTPLUS_NETWORK_KEY)
+            scanner = Scanner(self._node, device_type=DeviceType.HeartRate.value)
+
+            seen = set()
+
+            def on_found(device_tuple):
+                device_id, _device_type, _trans_type = device_tuple
+                if device_id not in seen:
+                    seen.add(device_id)
+                    self.device_found.emit(device_id)
+
+            scanner.on_found = on_found
+
+            # node.start() je blocking - auto-stop preko odvojenog timera
+            stopper = threading.Timer(self.duration_s, self._safe_stop)
+            stopper.start()
+
+            try:
+                self._node.start()
+            finally:
+                stopper.cancel()
+                try:
+                    scanner.close_channel()
+                except Exception:
+                    pass
+        except Exception as e:
+            detail = str(e).strip()
+            message = f"{type(e).__name__}: {detail}" if detail else type(e).__name__
+            self.error.emit(message)
+        finally:
+            self.scan_finished.emit()
+
+    def _safe_stop(self):
+        try:
+            if self._node:
+                self._node.stop()
+        except Exception:
+            pass
+
+    def stop(self):
+        self._safe_stop()
+        self.wait(2000)
+
+
 class HeartRateReceiver(QThread):
     hr_updated = pyqtSignal(int)
     device_found = pyqtSignal()

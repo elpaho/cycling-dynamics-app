@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         pairing_row = QHBoxLayout()
         self.power_status = QPushButton("Power: Simulator (dev)")
         self.power_status.setEnabled(False)
-        self.hr_status = QPushButton("HR: connecting...")
+        self.hr_status = QPushButton("HR: tap to pair")
         self.hr_status.clicked.connect(self._retry_hr)
         pairing_row.addWidget(self.power_status)
         pairing_row.addWidget(self.hr_status)
@@ -239,21 +239,29 @@ class MainWindow(QMainWindow):
 
         # ANT+ HR - stvarni hardver
         self.hr_receiver = None
-        self._start_hr()
+        self.hr_device_id = 0  # 0 = wildcard (prvi koji se javi), mijenja se nakon pairinga
 
-    def _start_hr(self):
+    def _start_hr(self, device_id: int = None):
+        if device_id is not None:
+            self.hr_device_id = device_id
         self.hr_status.setText("HR: connecting...")
-        self.hr_receiver = HeartRateReceiver(device_id=0)
+        self.hr_receiver = HeartRateReceiver(device_id=self.hr_device_id)
         self.hr_receiver.device_found.connect(lambda: self.hr_status.setText("HR: connected"))
         self.hr_receiver.error.connect(self._on_hr_error)
         self.hr_receiver.hr_updated.connect(self._on_hr_data)
         self.hr_receiver.start()
 
     def _retry_hr(self):
-        # QThread se ne moze ponovno pokrenuti nakon sto zavrsi, treba nova instanca
+        from ui.pairing_dialog import HRPairingDialog
+
         if self.hr_receiver is not None and self.hr_receiver.isRunning():
             self.hr_receiver.stop()
-        self._start_hr()
+
+        dialog = HRPairingDialog(self)
+        if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_device_id is not None:
+            self._start_hr(device_id=dialog.selected_device_id)
+        else:
+            self.hr_status.setText("HR: not connected")
 
     def _on_hr_error(self, message: str):
         self.hr_status.setText("HR: error - tap to retry")
@@ -362,5 +370,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.power_sim.stop()
-        self.hr_receiver.stop()
+        if self.hr_receiver is not None:
+            self.hr_receiver.stop()
         super().closeEvent(event)
