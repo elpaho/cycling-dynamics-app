@@ -20,7 +20,7 @@ def main():
         _download_update(app, window, checker)
 
     def on_no_update():
-        pass  # tiho, nema dijaloga ako je sve up to date
+        print(f"[update] Already on latest version ({VERSION}).")
 
     def on_check_failed(message: str):
         print(f"[update] check failed: {message}")
@@ -30,6 +30,7 @@ def main():
     checker.check_failed.connect(on_check_failed)
 
     check_worker = UpdateWorker(checker, mode="check")
+    print("[update] Checking for updates...")
     check_worker.start()
     # čuvamo referencu da je garbage collector ne pokupi prerano
     window._check_worker = check_worker

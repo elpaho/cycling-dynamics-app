@@ -259,7 +259,11 @@ class MainWindow(QMainWindow):
 
         dialog = HRPairingDialog(self)
         if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_device_id is not None:
-            self._start_hr(device_id=dialog.selected_device_id)
+            device_id = dialog.selected_device_id
+            self.hr_status.setText("HR: connecting...")
+            # kratka pauza da Windows/libusb stvarno oslobodi USB handle nakon
+            # gasenja scanner Node-a, prije nego otvorimo novi za HeartRateReceiver
+            QTimer.singleShot(1500, lambda: self._start_hr(device_id=device_id))
         else:
             self.hr_status.setText("HR: not connected")
 
