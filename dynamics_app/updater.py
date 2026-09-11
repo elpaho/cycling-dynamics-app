@@ -27,18 +27,6 @@ ZIP_URL = f"{RAW_BASE}/dist/dynamics_app_latest.zip"
 APP_ROOT = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 
-def _version_tuple(v: str) -> tuple:
-    """'v1.2' -> (1, 2); robustno na fali/extra dijelove."""
-    v = v.strip().lstrip("vV")
-    parts = []
-    for p in v.split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
-
-
 def _parse_remote_version(text: str) -> str:
     # očekuje liniju: VERSION = "vX.X"
     for line in text.splitlines():
@@ -62,7 +50,7 @@ class UpdateChecker(QObject):
             resp = requests.get(VERSION_URL, timeout=8)
             resp.raise_for_status()
             remote_version = _parse_remote_version(resp.text)
-            if remote_version and _version_tuple(remote_version) > _version_tuple(VERSION):
+            if remote_version and remote_version != VERSION:
                 self.update_available.emit(remote_version)
             else:
                 self.no_update.emit()

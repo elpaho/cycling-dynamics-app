@@ -16,8 +16,13 @@ def main():
     checker = UpdateChecker()
 
     def on_update_available(remote_version: str):
-        print(f"[update] version {remote_version} available, downloading automatically...")
-        _download_update(app, window, checker)
+        reply = QMessageBox.question(
+            window,
+            "Update available",
+            f"New version {remote_version} is available (current: {VERSION}).\nUpdate now?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            _download_update(app, window, checker)
 
     def on_no_update():
         pass  # tiho, nema dijaloga ako je sve up to date
