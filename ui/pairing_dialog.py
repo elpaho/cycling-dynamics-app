@@ -65,6 +65,7 @@ class HRPairingDialog(QDialog):
         if not items:
             return
         self.selected_device_id = items[0].data(Qt.ItemDataRole.UserRole)
+        self.scanner.stop()  # mora biti potpuno zatvoren prije nego HeartRateReceiver otvori novi Node
         self.accept()
 
     def closeEvent(self, event):
