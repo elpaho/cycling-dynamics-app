@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 
 from simulator.power_simulator import PowerSimulator
-from ant.hr_receiver import HeartRateReceiver
+from ant.ant_manager import AntManager
 
 
 def _box(title: str) -> tuple[QFrame, QLabel, QLabel]:
@@ -129,8 +129,8 @@ class MainWindow(QMainWindow):
 
         # --- pairing status row ---
         pairing_row = QHBoxLayout()
-        self.power_status = QPushButton("Power: Simulator (dev)")
-        self.power_status.setEnabled(False)
+        self.power_status = QPushButton("Power: Simulator (dev) - tap to pair real")
+        self.power_status.clicked.connect(self._retry_power)
         self.hr_status = QPushButton("HR: tap to pair")
         self.hr_status.clicked.connect(self._retry_hr)
         pairing_row.addWidget(self.power_status)
@@ -231,45 +231,79 @@ class MainWindow(QMainWindow):
         self.seated_label.setStyleSheet(inactive_style if standing else active_style)
         self.standing_label.setStyleSheet(active_style if standing else inactive_style)
 
+    def _set_stance_unavailable(self):
+        muted_style = "color: #555;"
+        self.seated_label.setStyleSheet(muted_style)
+        self.standing_label.setStyleSheet(muted_style)
+        self.stance_pct_label.setText("Seated/standing unavailable - no dynamics from this source")
+
     # ---------------------------------------------------- data sources
     def _start_data_sources(self):
-        # Simulator - MAKNUTI kad ANT+ Bike Power / cycling dynamics sloj bude gotov
+        # Simulator - fallback dok se ne uparuje stvarni power meter
         self.power_sim = PowerSimulator(interval_ms=250)
         self.power_sim.data_updated.connect(self._on_power_data)
+        self.using_real_power = False
 
-        # ANT+ HR - stvarni hardver
-        self.hr_receiver = None
-        self.hr_device_id = 0  # 0 = wildcard (prvi koji se javi), mijenja se nakon pairinga
+        # ANT+ - jedan perzistentni Node za citav zivot appa (scan/HR/power
+        # kanali se dinamicki dodaju/uklanjaju na njemu, USB uredjaj se ne
+        # pusta i ponovno hvata izmedju scan i connect faze)
+        self.ant_manager = AntManager()
+        self.ant_manager.error.connect(self._on_hr_error)
+        self.ant_manager.hr_connected.connect(lambda: self.hr_status.setText("HR: connected"))
+        self.ant_manager.hr_updated.connect(self._on_hr_data)
+        self.ant_manager.hr_error.connect(self._on_hr_error)
 
-    def _start_hr(self, device_id: int = None):
-        if device_id is not None:
-            self.hr_device_id = device_id
-        self.hr_status.setText("HR: connecting...")
-        self.hr_receiver = HeartRateReceiver(device_id=self.hr_device_id)
-        self.hr_receiver.device_found.connect(lambda: self.hr_status.setText("HR: connected"))
-        self.hr_receiver.error.connect(self._on_hr_error)
-        self.hr_receiver.hr_updated.connect(self._on_hr_data)
-        self.hr_receiver.start()
+        self.ant_manager.power_connected.connect(self._on_power_connected)
+        self.ant_manager.power_updated.connect(self._on_ant_power_data)
+        self.ant_manager.power_error.connect(self._on_power_error)
+
+        self.ant_manager.start()
 
     def _retry_hr(self):
-        from ui.pairing_dialog import HRPairingDialog
+        from ui.pairing_dialog import DevicePairingDialog
 
-        if self.hr_receiver is not None and self.hr_receiver.isRunning():
-            self.hr_receiver.stop()
-
-        dialog = HRPairingDialog(self)
+        dialog = DevicePairingDialog(
+            "Pair heart rate monitor",
+            self.ant_manager.start_hr_scan,
+            self.ant_manager.stop_hr_scan,
+            self.ant_manager.hr_scan_found,
+            self.ant_manager.hr_error,
+            self,
+        )
         if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_device_id is not None:
-            device_id = dialog.selected_device_id
             self.hr_status.setText("HR: connecting...")
-            # kratka pauza da Windows/libusb stvarno oslobodi USB handle nakon
-            # gasenja scanner Node-a, prije nego otvorimo novi za HeartRateReceiver
-            QTimer.singleShot(1500, lambda: self._start_hr(device_id=device_id))
+            self.ant_manager.connect_hr(dialog.selected_device_id)
         else:
             self.hr_status.setText("HR: not connected")
 
     def _on_hr_error(self, message: str):
         self.hr_status.setText("HR: error - tap to retry")
         print(f"[HR] {message}")
+
+    def _retry_power(self):
+        from ui.pairing_dialog import DevicePairingDialog
+
+        dialog = DevicePairingDialog(
+            "Pair power meter",
+            self.ant_manager.start_power_scan,
+            self.ant_manager.stop_power_scan,
+            self.ant_manager.power_scan_found,
+            self.ant_manager.power_error,
+            self,
+        )
+        if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_device_id is not None:
+            self.power_status.setText("Power: connecting...")
+            self.power_sim.stop()  # gasi simulator cim krenemo na pravi izvor
+            self.ant_manager.connect_power(dialog.selected_device_id)
+        # ako je Cancel, ostajemo na simulatoru bez promjene statusa
+
+    def _on_power_connected(self):
+        self.using_real_power = True
+        self.power_status.setText("Power: connected (basic - no dynamics)")
+
+    def _on_power_error(self, message: str):
+        self.power_status.setText("Power: error - tap to retry")
+        print(f"[POWER] {message}")
 
     # ------------------------------------------------------ accumulators
     def _init_accumulators(self):
@@ -292,25 +326,52 @@ class MainWindow(QMainWindow):
         if self.frozen:
             return
 
-        self.power_value.setText(f"{data['power']} W")
-        self.cadence_value.setText(f"{data['cadence']} rpm")
-        self.balance_value.setText(f"{data['balance_l']}% / {data['balance_r']}%")
-        self.balance_bar.setValue(data["balance_l"])
-        self.left_panel.update_data(data["left"])
-        self.right_panel.update_data(data["right"])
-        self._set_stance(data["standing"])
+        power = data.get("power")
+        cadence = data.get("cadence")
+        if power is not None:
+            self.power_value.setText(f"{power} W")
+        if cadence is not None:
+            self.cadence_value.setText(f"{cadence} rpm")
+
+        balance_l = data.get("balance_l")
+        balance_r = data.get("balance_r")
+        if balance_l is not None and balance_r is not None:
+            self.balance_value.setText(f"{balance_l}% / {balance_r}%")
+            self.balance_bar.setValue(balance_l)
+        else:
+            self.balance_value.setText("--% / --%")
+
+        if "left" in data and "right" in data:
+            self.left_panel.update_data(data["left"])
+            self.right_panel.update_data(data["right"])
+        else:
+            self.left_panel.clear_data()
+            self.right_panel.clear_data()
+
+        stance_known = "standing" in data
+        if stance_known:
+            self._set_stance(data["standing"])
+        else:
+            self._set_stance_unavailable()
 
         if self.session_active:
-            self.avg_power.add(data["power"])
-            self.avg_cadence.add(data["cadence"])
-            self.avg_balance_l.add(data["balance_l"])
-            self.avg_balance_r.add(data["balance_r"])
-            self.total_samples += 1
-            if data["standing"]:
-                self.standing_samples += 1
-            else:
-                self.seated_samples += 1
+            if power is not None:
+                self.avg_power.add(power)
+            if cadence is not None:
+                self.avg_cadence.add(cadence)
+            if balance_l is not None:
+                self.avg_balance_l.add(balance_l)
+                self.avg_balance_r.add(balance_r)
+            if stance_known:
+                self.total_samples += 1
+                if data["standing"]:
+                    self.standing_samples += 1
+                else:
+                    self.seated_samples += 1
             self._update_avg_labels()
+
+    def _on_ant_power_data(self, data: dict):
+        self._on_power_data(data)
 
     def _on_hr_data(self, value: int):
         if self.frozen:
@@ -374,6 +435,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.power_sim.stop()
-        if self.hr_receiver is not None:
-            self.hr_receiver.stop()
+        if self.ant_manager is not None:
+            self.ant_manager.shutdown()
         super().closeEvent(event)
