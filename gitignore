@@ -1,0 +1,17 @@
+# Osobni/lokalni podaci - NE ide na GitHub (sadrzi email App Password)
+local_config.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtualno okruzenje (ako ikad koristis venv)
+venv/
+.venv/
+
+# Editor/OS smece
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
