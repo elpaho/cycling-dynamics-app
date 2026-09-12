@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 
-from simulator.power_simulator import PowerSimulator
 from ant.ant_manager import AntManager
 
 
@@ -129,7 +128,7 @@ class MainWindow(QMainWindow):
 
         # --- pairing status row ---
         pairing_row = QHBoxLayout()
-        self.power_status = QPushButton("Power: Simulator (dev) - tap to pair real")
+        self.power_status = QPushButton("Power: tap to pair")
         self.power_status.clicked.connect(self._retry_power)
         self.hr_status = QPushButton("HR: tap to pair")
         self.hr_status.clicked.connect(self._retry_hr)
@@ -199,7 +198,7 @@ class MainWindow(QMainWindow):
         self.stance_pct_label.setStyleSheet("color: #888; font-size: 12px;")
         stance_layout.addWidget(self.stance_pct_label)
         root.addWidget(stance_frame)
-        self._set_stance(False)
+        self._set_stance_unavailable()
 
         # --- session timer + analyze/stop ---
         self.session_time_label = QLabel("00:00")
@@ -239,9 +238,6 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------- data sources
     def _start_data_sources(self):
-        # Simulator - fallback dok se ne uparuje stvarni power meter
-        self.power_sim = PowerSimulator(interval_ms=250)
-        self.power_sim.data_updated.connect(self._on_power_data)
         self.using_real_power = False
 
         # ANT+ - jedan perzistentni Node za citav zivot appa (scan/HR/power
@@ -293,7 +289,6 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() == dialog.DialogCode.Accepted and dialog.selected_device_id is not None:
             self.power_status.setText("Power: connecting...")
-            self.power_sim.stop()  # gasi simulator cim krenemo na pravi izvor
             self.ant_manager.connect_power(dialog.selected_device_id)
         # ako je Cancel, ostajemo na simulatoru bez promjene statusa
 
@@ -434,7 +429,6 @@ class MainWindow(QMainWindow):
         self.balance_avg.setText("session average")
 
     def closeEvent(self, event):
-        self.power_sim.stop()
         if self.ant_manager is not None:
             self.ant_manager.shutdown()
         super().closeEvent(event)
