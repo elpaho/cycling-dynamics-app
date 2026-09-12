@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QFrame, QProgressBar, QSizePolicy,
@@ -111,6 +113,7 @@ class MainWindow(QMainWindow):
         self.session_active = False
         self.frozen = False
         self.session_seconds = 0
+        self.session_start_time = None
 
         self._build_ui()
         self._init_accumulators()
@@ -128,9 +131,11 @@ class MainWindow(QMainWindow):
 
         # --- pairing status row ---
         pairing_row = QHBoxLayout()
-        self.power_status = QPushButton("Power: tap to pair")
+        self.power_status = QPushButton("Power: initializing...")
+        self.power_status.setEnabled(False)
         self.power_status.clicked.connect(self._retry_power)
-        self.hr_status = QPushButton("HR: tap to pair")
+        self.hr_status = QPushButton("HR: initializing...")
+        self.hr_status.setEnabled(False)
         self.hr_status.clicked.connect(self._retry_hr)
         pairing_row.addWidget(self.power_status)
         pairing_row.addWidget(self.hr_status)
@@ -212,6 +217,12 @@ class MainWindow(QMainWindow):
         self._style_analyze_button(active=False)
         root.addWidget(self.analyze_button)
 
+        self.send_report_button = QPushButton("Send Report")
+        self.send_report_button.setFixedHeight(36)
+        self.send_report_button.clicked.connect(self._open_report_dialog)
+        self.send_report_button.setVisible(False)  # samo nakon Stop-a
+        root.addWidget(self.send_report_button)
+
     def _style_analyze_button(self, active: bool):
         if active:
             self.analyze_button.setText("Stop")
@@ -244,7 +255,8 @@ class MainWindow(QMainWindow):
         # kanali se dinamicki dodaju/uklanjaju na njemu, USB uredjaj se ne
         # pusta i ponovno hvata izmedju scan i connect faze)
         self.ant_manager = AntManager()
-        self.ant_manager.error.connect(self._on_hr_error)
+        self.ant_manager.ready.connect(self._on_ant_ready)
+        self.ant_manager.error.connect(self._on_ant_node_error)
         self.ant_manager.hr_connected.connect(lambda: self.hr_status.setText("HR: connected"))
         self.ant_manager.hr_updated.connect(self._on_hr_data)
         self.ant_manager.hr_error.connect(self._on_hr_error)
@@ -254,6 +266,17 @@ class MainWindow(QMainWindow):
         self.ant_manager.power_error.connect(self._on_power_error)
 
         self.ant_manager.start()
+
+    def _on_ant_ready(self):
+        self.power_status.setEnabled(True)
+        self.power_status.setText("Power: tap to pair")
+        self.hr_status.setEnabled(True)
+        self.hr_status.setText("HR: tap to pair")
+
+    def _on_ant_node_error(self, message: str):
+        self.power_status.setText("Power: ANT+ dongle not found")
+        self.hr_status.setText("HR: ANT+ dongle not found")
+        print(f"[ANT+] {message}")
 
     def _retry_hr(self):
         from ui.pairing_dialog import DevicePairingDialog
@@ -390,9 +413,11 @@ class MainWindow(QMainWindow):
         if not self.session_active and not self.frozen:
             # start
             self._reset_session()
+            self.session_start_time = datetime.now()
             self.session_active = True
             self.session_timer.start(1000)
             self._style_analyze_button(active=True)
+            self.send_report_button.setVisible(False)
         elif self.session_active:
             # stop -> freeze on summary
             self.session_active = False
@@ -400,13 +425,16 @@ class MainWindow(QMainWindow):
             self.session_timer.stop()
             self._freeze_on_summary()
             self._style_analyze_button(active=False)
+            self.send_report_button.setVisible(True)
         else:
             # frozen -> start new session
             self.frozen = False
             self._reset_session()
+            self.session_start_time = datetime.now()
             self.session_active = True
             self.session_timer.start(1000)
             self._style_analyze_button(active=True)
+            self.send_report_button.setVisible(False)
 
     def _on_session_tick(self):
         self.session_seconds += 1
@@ -427,6 +455,27 @@ class MainWindow(QMainWindow):
             self.balance_value.setText(f"{bl:.0f}% / {br:.0f}%")
             self.balance_bar.setValue(int(bl))
         self.balance_avg.setText("session average")
+
+    def _open_report_dialog(self):
+        from ui.report_dialog import ReportDialog
+
+        summary = {
+            "power": self.avg_power.avg,
+            "cadence": self.avg_cadence.avg,
+            "hr": self.avg_hr.avg,
+            "balance_l": self.avg_balance_l.avg,
+            "balance_r": self.avg_balance_r.avg,
+        }
+        if self.total_samples:
+            summary["seated_pct"] = self.seated_samples / self.total_samples * 100
+            summary["standing_pct"] = self.standing_samples / self.total_samples * 100
+
+        start_str = self.session_start_time.strftime("%Y-%m-%d %H:%M") if self.session_start_time else "--"
+        mm, ss = divmod(self.session_seconds, 60)
+        duration_str = f"{mm:02d}:{ss:02d}"
+
+        dialog = ReportDialog(start_str, duration_str, summary, self)
+        dialog.exec()
 
     def closeEvent(self, event):
         if self.ant_manager is not None:
