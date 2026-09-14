@@ -12,8 +12,8 @@ DARK_STYLESHEET = """
     QMainWindow { background: #1a1a1a; }
     QWidget { color: #e0e0e0; }
     QLabel { background: transparent; }
-    #card { background: #242424; border: 1px solid #333; border-radius: 8px; }
-    #metricCard { background: #242424; border: 1px solid #333; border-radius: 8px; }
+    #card { background: #242424; border: 1px solid #333; border-top: 2px solid #c8a84b; border-radius: 8px; }
+    #metricCard { background: #242424; border: 1px solid #333; border-top: 2px solid #c8a84b; border-radius: 8px; }
     #metricLabel { font-size: 12px; color: #888; }
     #metricValue { font-size: 26px; font-weight: 600; color: #e0e0e0; }
     #panelTitle { font-weight: 600; font-size: 13px; color: #e0e0e0; }
