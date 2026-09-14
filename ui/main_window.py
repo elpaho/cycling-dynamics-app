@@ -104,6 +104,18 @@ class RunningAverage:
         self.count = 0
 
 
+DYNAMICS_SCALAR_KEYS = ["torque_eff", "pedal_smooth", "pco_mm"]
+DYNAMICS_RANGE_KEYS = ["power_phase", "peak_phase"]  # svaki je (start, end) tuple
+
+
+def _new_dynamics_accumulators() -> dict:
+    acc = {key: RunningAverage() for key in DYNAMICS_SCALAR_KEYS}
+    for key in DYNAMICS_RANGE_KEYS:
+        acc[f"{key}_start"] = RunningAverage()
+        acc[f"{key}_end"] = RunningAverage()
+    return acc
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -330,6 +342,8 @@ class MainWindow(QMainWindow):
         self.avg_hr = RunningAverage()
         self.avg_balance_l = RunningAverage()
         self.avg_balance_r = RunningAverage()
+        self.avg_left = _new_dynamics_accumulators()
+        self.avg_right = _new_dynamics_accumulators()
         self.seated_samples = 0
         self.standing_samples = 0
         self.total_samples = 0
@@ -362,6 +376,9 @@ class MainWindow(QMainWindow):
         if "left" in data and "right" in data:
             self.left_panel.update_data(data["left"])
             self.right_panel.update_data(data["right"])
+            if self.session_active:
+                self._accumulate_dynamics(self.avg_left, data["left"])
+                self._accumulate_dynamics(self.avg_right, data["right"])
         else:
             self.left_panel.clear_data()
             self.right_panel.clear_data()
@@ -387,6 +404,18 @@ class MainWindow(QMainWindow):
                 else:
                     self.seated_samples += 1
             self._update_avg_labels()
+
+    def _accumulate_dynamics(self, accumulators: dict, side_data: dict):
+        for key in DYNAMICS_SCALAR_KEYS:
+            value = side_data.get(key)
+            if value is not None:
+                accumulators[key].add(value)
+        for key in DYNAMICS_RANGE_KEYS:
+            value = side_data.get(key)
+            if value is not None:
+                start, end = value
+                accumulators[f"{key}_start"].add(start)
+                accumulators[f"{key}_end"].add(end)
 
     def _on_ant_power_data(self, data: dict):
         self._on_power_data(data)
@@ -465,6 +494,8 @@ class MainWindow(QMainWindow):
             "hr": self.avg_hr.avg,
             "balance_l": self.avg_balance_l.avg,
             "balance_r": self.avg_balance_r.avg,
+            "left": {key: acc.avg for key, acc in self.avg_left.items()},
+            "right": {key: acc.avg for key, acc in self.avg_right.items()},
         }
         if self.total_samples:
             summary["seated_pct"] = self.seated_samples / self.total_samples * 100

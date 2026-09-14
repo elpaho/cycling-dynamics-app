@@ -43,6 +43,28 @@ def build_report_text(name: str, start_time_str: str, duration_str: str, summary
     else:
         lines.append("Seated/standing: -- (not available from this power source)")
 
+    for side_label, side_key in (("Left pedal", "left"), ("Right pedal", "right")):
+        side = summary.get(side_key)
+        lines.append("")
+        lines.append(f"-- {side_label} (cycling dynamics) --")
+        if side is None or all(v is None for v in side.values()):
+            lines.append("Not available from this power source.")
+            continue
+        te, ps, pco = side.get("torque_eff"), side.get("pedal_smooth"), side.get("pco_mm")
+        lines.append(f"Torque effectiveness: {fmt(te, '%')}")
+        lines.append(f"Pedal smoothness:     {fmt(ps, '%')}")
+        lines.append(f"PCO:                  {fmt(pco, ' mm')}")
+        pp_s, pp_e = side.get("power_phase_start"), side.get("power_phase_end")
+        if pp_s is not None and pp_e is not None:
+            lines.append(f"Power phase:          {pp_s:.0f}\u00b0\u2013{pp_e:.0f}\u00b0")
+        else:
+            lines.append("Power phase:          --")
+        pk_s, pk_e = side.get("peak_phase_start"), side.get("peak_phase_end")
+        if pk_s is not None and pk_e is not None:
+            lines.append(f"Peak phase:           {pk_s:.0f}\u00b0\u2013{pk_e:.0f}\u00b0")
+        else:
+            lines.append("Peak phase:           --")
+
     return "\n".join(lines)
 
 
