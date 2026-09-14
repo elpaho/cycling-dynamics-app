@@ -8,21 +8,46 @@ from PyQt6.QtCore import Qt, QTimer
 
 from ant.ant_manager import AntManager
 
+DARK_STYLESHEET = """
+    QMainWindow { background: #1a1a1a; }
+    QWidget { color: #e0e0e0; }
+    QLabel { background: transparent; }
+    #card { background: #242424; border: 1px solid #333; border-radius: 8px; }
+    #metricCard { background: #242424; border: 1px solid #333; border-radius: 8px; }
+    #metricLabel { font-size: 12px; color: #888; }
+    #metricValue { font-size: 26px; font-weight: 600; color: #e0e0e0; }
+    #panelTitle { font-weight: 600; font-size: 13px; color: #e0e0e0; }
+    #rowLabel { color: #888; font-size: 12px; }
+    #rowValue { font-size: 13px; color: #e0e0e0; }
+    #mutedLabel { color: #888; font-size: 12px; }
+    #sessionTimer { font-size: 13px; color: #888; }
+    QPushButton { background: #2a2a2a; color: #e0e0e0; border: 1px solid #333; border-radius: 6px; padding: 6px 10px; }
+    QPushButton:hover { background: #333; }
+    QPushButton:disabled { color: #555; background: #232323; }
+    QProgressBar { background: #333; border-radius: 4px; border: none; }
+    QProgressBar::chunk { background: #185FA5; border-radius: 4px; }
+    QDialog { background: #1a1a1a; color: #e0e0e0; }
+    QLineEdit { background: #2a2a2a; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 4px; }
+    QListWidget { background: #242424; color: #e0e0e0; border: 1px solid #333; }
+    QListWidget::item:selected { background: #1a3a5c; color: #7ab3e0; }
+"""
+
 
 def _box(title: str) -> tuple[QFrame, QLabel, QLabel]:
     """Kreira jednu 'metric' kućicu (naslov + veliki broj)."""
     frame = QFrame()
+    frame.setObjectName("metricCard")
     frame.setFrameShape(QFrame.Shape.StyledPanel)
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(12, 10, 12, 10)
 
     title_label = QLabel(title)
+    title_label.setObjectName("metricLabel")
     title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    title_label.setStyleSheet("color: #888; font-size: 12px;")
 
     value_label = QLabel("--")
+    value_label.setObjectName("metricValue")
     value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    value_label.setStyleSheet("font-size: 26px; font-weight: 600;")
 
     layout.addWidget(title_label)
     layout.addWidget(value_label)
@@ -42,23 +67,24 @@ class PedalPanel(QFrame):
 
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
+        self.setObjectName("card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
 
         title_label = QLabel(title)
+        title_label.setObjectName("panelTitle")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-weight: 600; font-size: 13px;")
         layout.addWidget(title_label)
 
         grid = QGridLayout()
         self.value_labels = {}
         for row, (label_text, key, _unit) in enumerate(self.ROWS):
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("color: #888; font-size: 12px;")
+            lbl.setObjectName("rowLabel")
             val = QLabel("--")
+            val.setObjectName("rowValue")
             val.setAlignment(Qt.AlignmentFlag.AlignRight)
-            val.setStyleSheet("font-size: 13px;")
             grid.addWidget(lbl, row, 0)
             grid.addWidget(val, row, 1)
             self.value_labels[key] = val
@@ -164,16 +190,17 @@ class MainWindow(QMainWindow):
 
         # --- power balance ---
         balance_frame = QFrame()
+        balance_frame.setObjectName("card")
         balance_frame.setFrameShape(QFrame.Shape.StyledPanel)
         balance_layout = QVBoxLayout(balance_frame)
         header = QHBoxLayout()
         left_hdr = QLabel("Power balance")
-        left_hdr.setStyleSheet("color: #888; font-size: 12px;")
+        left_hdr.setObjectName("mutedLabel")
         self.balance_value = QLabel("--% / --%")
         self.balance_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.balance_value.setStyleSheet("font-size: 22px; font-weight: 600;")
+        self.balance_value.setStyleSheet("font-size: 22px; font-weight: 600; color: #e0e0e0;")
         self.balance_avg = QLabel("avg --% / --%")
-        self.balance_avg.setStyleSheet("color: #888; font-size: 12px;")
+        self.balance_avg.setObjectName("mutedLabel")
         header.addWidget(left_hdr)
         header.addStretch()
         header.addWidget(self.balance_avg)
@@ -197,6 +224,7 @@ class MainWindow(QMainWindow):
 
         # --- seated / standing ---
         stance_frame = QFrame()
+        stance_frame.setObjectName("card")
         stance_frame.setFrameShape(QFrame.Shape.StyledPanel)
         stance_layout = QVBoxLayout(stance_frame)
         toggle_row = QHBoxLayout()
@@ -211,16 +239,16 @@ class MainWindow(QMainWindow):
         toggle_row.addStretch()
         stance_layout.addLayout(toggle_row)
         self.stance_pct_label = QLabel("--% seated \u00b7 --% standing")
+        self.stance_pct_label.setObjectName("mutedLabel")
         self.stance_pct_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.stance_pct_label.setStyleSheet("color: #888; font-size: 12px;")
         stance_layout.addWidget(self.stance_pct_label)
         root.addWidget(stance_frame)
         self._set_stance_unavailable()
 
         # --- session timer + analyze/stop ---
         self.session_time_label = QLabel("00:00")
+        self.session_time_label.setObjectName("sessionTimer")
         self.session_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.session_time_label.setStyleSheet("font-size: 13px; color: #888;")
         root.addWidget(self.session_time_label)
 
         self.analyze_button = QPushButton("Analyze")
@@ -239,17 +267,17 @@ class MainWindow(QMainWindow):
         if active:
             self.analyze_button.setText("Stop")
             self.analyze_button.setStyleSheet(
-                "background-color: #c0392b; color: white; font-size: 15px; font-weight: 600;"
+                "background-color: #3a1a1a; color: #e06060; border: 1px solid #7a2020; font-size: 15px; font-weight: 600; border-radius: 6px;"
             )
         else:
             self.analyze_button.setText("Analyze")
             self.analyze_button.setStyleSheet(
-                "background-color: #378ADD; color: white; font-size: 15px; font-weight: 600;"
+                "background-color: #185FA5; color: #e0e0e0; border: 1px solid #2a5a8c; font-size: 15px; font-weight: 600; border-radius: 6px;"
             )
 
     def _set_stance(self, standing: bool):
-        active_style = "background-color: rgba(55,138,221,0.15); border: 1px solid #378ADD; color: #185FA5; font-weight: 600; border-radius: 6px;"
-        inactive_style = "color: #888;"
+        active_style = "background-color: #1a3a5c; border: 1px solid #2a5a8c; color: #7ab3e0; font-weight: 600; border-radius: 6px;"
+        inactive_style = "color: #666;"
         self.seated_label.setStyleSheet(inactive_style if standing else active_style)
         self.standing_label.setStyleSheet(active_style if standing else inactive_style)
 

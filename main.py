@@ -5,11 +5,12 @@ from PyQt6.QtCore import Qt, QTimer
 
 from version import VERSION
 from updater import UpdateChecker, UpdateWorker, restart_app
-from ui.main_window import MainWindow
+from ui.main_window import MainWindow, DARK_STYLESHEET
 
 
 def main():
     app = QApplication(sys.argv)
+    app.setStyleSheet(DARK_STYLESHEET)
     window = MainWindow()
     window.setWindowTitle(f"Cycling Dynamics {VERSION}")
 
