@@ -190,5 +190,7 @@ def apply_update_and_restart():
         "--old-dir", APP_ROOT,
         "--new-dir", NEW_DIR,
         "--exe-name", APP_EXE_NAME,
+        "--wait-retries", "60",
+        "--wait-delay", "1",
     ])
     os._exit(0)
