@@ -18,7 +18,7 @@ def main():
 
     def on_update_available(remote_version: str):
         print(f"[update] version {remote_version} available, downloading automatically...")
-        _download_update(app, window, checker)
+        _download_update(app, window, checker, remote_version)
 
     def on_no_update():
         print(f"[update] Already on latest version ({VERSION}).")
@@ -40,7 +40,7 @@ def main():
     sys.exit(app.exec())
 
 
-def _download_update(app, window, checker: UpdateChecker):
+def _download_update(app, window, checker: UpdateChecker, remote_version: str):
     progress = QProgressDialog("Downloading update...", None, 0, 100, window)
     progress.setWindowTitle("Update")
     progress.setWindowModality(Qt.WindowModality.ApplicationModal)
@@ -61,7 +61,7 @@ def _download_update(app, window, checker: UpdateChecker):
         if success:
             QMessageBox.information(window, "Update", "Update downloaded. The app will restart.")
             try:
-                apply_update_and_restart()
+                apply_update_and_restart(remote_version)
             except FileNotFoundError as e:
                 QMessageBox.critical(window, "Update failed", str(e))
         else:
@@ -70,7 +70,7 @@ def _download_update(app, window, checker: UpdateChecker):
     checker.progress.connect(on_progress)
     checker.download_done.connect(on_done)
 
-    download_worker = UpdateWorker(checker, mode="download")
+    download_worker = UpdateWorker(checker, mode="download", remote_version=remote_version)
     download_worker.start()
     window._download_worker = download_worker
 

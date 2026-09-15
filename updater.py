@@ -1,38 +1,46 @@
-"""
-Auto-update preko GitHuba, prilagođeno za Nuitka standalone distribuciju.
+r"""
+Auto-update preko GitHuba - verzionirani podfolderi, bez swap-helper procesa.
 
-Zašto ne raspakiravamo preko sebe kao ranije: kompajlirani .exe (i svaki
-DLL/pyd koji je učitao) je Windows-lockan dok proces radi, pa se ne može
-prepisati "u hodu", niti se app može sam restartati python-relaunch
-trikom (nema više python.exe, samo standalone exe).
+Zašto ovako: prijašnji pristup (folder-rename preko posebnog updater.exe) je
+na Windowsu stalno nailazio na file-lock probleme - SysMain (Superfetch) i
+Windows App-Compat shim engine drže kratkotrajnu read-only memory-mapped
+sekciju na SVAKI svježe pokrenut/nepoznat .exe, čak i dugo nakon što se
+proces ugasio, što blokira rename/delete operacije.
 
-Novi flow:
-1. Skini zip i raspakiraj ga u SIBLING folder (APP_ROOT + "_new") - ovo je
-   siguran korak, ne dira fajlove koje trenutni proces koristi.
-2. Pozovi odvojeni updater.exe (folder-swap helper, kompajliran zasebno
-   Nuitkom, živi u APP_ROOT/updater/updater.exe) s --old-dir/--new-dir/
-   --exe-name, pa se odmah ugasi preko os._exit(0).
-3. updater.exe pričeka da se lock oslobodi, zamijeni folder, pokrene novi
-   .exe, ugasi se sam.
+Novi pristup to potpuno zaobilazi: svaka verzija živi u svom VLASTITOM,
+nikad-ponovno-dirnutom podfolderu (npr. "v0.21\"). Update samo:
+1. Skine i raspakira novu verziju u NOV podfolder (npr. "v0.22\") - stari
+   podfolderi se nikad ne prepisuju niti brišu, pa nema lock problema.
+2. Prepiše current.txt (mali tekst fajl, nikad se ne "izvršava" pa ga
+   AppCompat/SysMain ne dira) da pokazuje na novi podfolder.
+3. Pokrene novi .exe direktno (subprocess.Popen) i ugasi se (os._exit(0)).
 
-VAŽNO: ovo pretpostavlja da je app pokrenut kao Nuitka standalone build s
-prisutnim APP_ROOT/updater/updater.exe. Pokretanje kao običan `python
-main.py` (dev mode bez tog foldera) će 'apply_update_and_restart' pucanjem
-ako updater.exe ne postoji - to je namjerno, da se odmah primijeti fali li
-nešto u distribuciji, a ne tiho ušuti grešku.
+Desktop shortcut pokazuje na stabilan launcher.exe (zaseban, rijetko se
+mijenja), koji čita current.txt i pokreće trenutno aktivnu verziju - vidi
+launcher.py za taj dio.
 
-Release zip (dist/dynamics_app_latest.zip) od sad treba sadržavati SADRŽAJ
-Nuitka .dist foldera direktno na top-levelu (exe + _internal/... itd), NE
-umotano u dodatni "dynamics_app/" folder - jer se sad extracta u čist
-sibling folder, ne preko postojeće instalacije.
+FAMILY_ROOT struktura:
+
+    Cycling Dynamics\              <- FAMILY_ROOT
+    ├── launcher.exe
+    ├── current.txt                <- npr. "v0.21"
+    ├── v0.20\                     <- VERSION_DIR prošle verzije
+    │   └── dynamics_app.exe
+    └── v0.21\                     <- VERSION_DIR trenutne verzije (APP_ROOT
+        └── dynamics_app.exe          kad ovaj kod trenutno radi)
+
+Release zip (dist/dynamics_app_latest.zip) i dalje sadrži sadržaj Nuitka
+.dist foldera direktno na top-levelu (dynamics_app.exe + ovisnosti) - isto
+kao dosad, samo se sad raspakira u FAMILY_ROOT/<nova_verzija>/ umjesto u
+sibling "_new" folder.
 """
 import os
 import sys
 import shutil
-import time
 import zipfile
 import subprocess
 import tempfile
+import time
 
 import requests
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -47,11 +55,12 @@ RAW_BASE = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/{GITH
 VERSION_URL = f"{RAW_BASE}/version.py"
 ZIP_URL = f"{RAW_BASE}/dist/dynamics_app_latest.zip"
 
-APP_ROOT = os.path.dirname(os.path.abspath(sys.argv[0]))
-NEW_DIR = APP_ROOT + "_new"
-
-UPDATER_SUBDIR = "updater"
-UPDATER_EXE_NAME = "updater.exe"
+# VERSION_DIR = folder u kojem trenutno živi POKRENUTI dynamics_app.exe
+# (npr. ...\Cycling Dynamics\v0.21). FAMILY_ROOT je jedan nivo iznad - tu
+# žive svi verzionirani podfolderi, current.txt i launcher.exe.
+VERSION_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+FAMILY_ROOT = os.path.dirname(VERSION_DIR)
+POINTER_FILE = os.path.join(FAMILY_ROOT, "current.txt")
 APP_EXE_NAME = "dynamics_app.exe"
 
 
@@ -82,8 +91,8 @@ class UpdateChecker(QObject):
     no_update = pyqtSignal()
     check_failed = pyqtSignal(str)
 
-    progress = pyqtSignal(int)           # -1 = indeterminate, 0-100 = %
-    download_done = pyqtSignal(bool, str)  # success, message
+    progress = pyqtSignal(int)             # -1 = indeterminate, 0-100 = %
+    download_done = pyqtSignal(bool, str)  # success, remote_version ili error poruka
 
     def check_for_update(self):
         try:
@@ -97,18 +106,14 @@ class UpdateChecker(QObject):
         except Exception as e:
             self.check_failed.emit(str(e))
 
-    def download_and_install(self):
-        """Skida zip i raspakirava ga u NEW_DIR (sibling folder) - NE preko APP_ROOT."""
-        print(f"[update] APP_ROOT={APP_ROOT}")
-        print(f"[update] NEW_DIR={NEW_DIR}")
+    def download_and_install(self, remote_version: str):
+        """Skida zip i raspakira ga u FAMILY_ROOT/<remote_version>/ - NOV, nikad prije koristen folder."""
         try:
-            if os.path.exists(NEW_DIR):
-                shutil.rmtree(NEW_DIR, ignore_errors=True)
-            os.makedirs(NEW_DIR, exist_ok=True)
-
-            old_backup = APP_ROOT + "_old"
-            if os.path.exists(old_backup):
-                shutil.rmtree(old_backup, ignore_errors=True)
+            target_dir = os.path.join(FAMILY_ROOT, remote_version)
+            if os.path.exists(target_dir):
+                # već postoji (npr. ostatak prekinutog pokušaja) - očisti
+                shutil.rmtree(target_dir, ignore_errors=True)
+            os.makedirs(target_dir, exist_ok=True)
 
             with requests.get(ZIP_URL, stream=True, timeout=30) as resp:
                 resp.raise_for_status()
@@ -128,69 +133,47 @@ class UpdateChecker(QObject):
                             self.progress.emit(-1)
 
             with zipfile.ZipFile(tmp_path, "r") as zf:
-                self._extract_with_retry(zf, NEW_DIR)
+                zf.extractall(target_dir)
 
             os.remove(tmp_path)
-            self.download_done.emit(True, "Update downloaded.")
+            self.download_done.emit(True, remote_version)
         except Exception as e:
             self.download_done.emit(False, str(e))
-
-    @staticmethod
-    def _extract_with_retry(zf: zipfile.ZipFile, target_dir: str, retries: int = 15, delay: float = 1.5):
-        """
-        extractall() zna pući s PermissionError ako Windows Defender (ili
-        neki drugi AV) nakratko zaključa svježe napisanu DLL/exe datoteku dok
-        je skenira - obično prođe unutar par sekundi. Retry cijelog
-        extractall-a je jednostavnije i sigurnije nego pokušavati preskočiti
-        pojedinačne fajlove.
-        """
-        last_error = None
-        for attempt in range(1, retries + 1):
-            try:
-                zf.extractall(target_dir)
-                return
-            except PermissionError as e:
-                last_error = e
-                time.sleep(delay)
-        raise last_error
 
 
 class UpdateWorker(QThread):
     """Pokreće provjeru/download u pozadinskom threadu."""
-    def __init__(self, checker: UpdateChecker, mode: str):
+    def __init__(self, checker: UpdateChecker, mode: str, remote_version: str = None):
         super().__init__()
         self.checker = checker
         self.mode = mode  # "check" ili "download"
+        self.remote_version = remote_version
 
     def run(self):
         if self.mode == "check":
             self.checker.check_for_update()
         elif self.mode == "download":
-            self.checker.download_and_install()
+            self.checker.download_and_install(self.remote_version)
 
 
-def apply_update_and_restart():
+def apply_update_and_restart(remote_version: str):
     """
-    Zove se NAKON uspješnog download_and_install() (NEW_DIR već postoji i
-    popunjen je). Pokreće odvojeni updater.exe koji čeka da se ovaj proces
-    ugasi, zamijeni APP_ROOT sadržajem iz NEW_DIR, i pokrene novi .exe.
+    Zove se NAKON uspješnog download_and_install() - FAMILY_ROOT/<remote_version>/
+    već postoji i popunjen je. Prepiše current.txt (atomično preko os.replace),
+    pokrene novi exe direktno (bez ikakvog swap-helpera), i ugasi ovaj proces.
 
-    Odmah nakon pokretanja updatera gasimo se preko os._exit(0) - ne radimo
-    nikakav cleanup nakon ovoga, updater.exe pretpostavlja da ćemo umrijeti
-    za par trenutaka.
+    Nema file-lock rizika: current.txt je mali tekst fajl koji se ne izvršava
+    (App-Compat/SysMain ga ne diraju), a stari VERSION_DIR se uopće ne dira.
     """
-    updater_exe = os.path.join(APP_ROOT, UPDATER_SUBDIR, UPDATER_EXE_NAME)
-    if not os.path.isfile(updater_exe):
-        raise FileNotFoundError(
-            f"updater.exe nije pronađen na {updater_exe} - provjeri da je "
-            f"'{UPDATER_SUBDIR}/' folder dio distribucije (Nuitka standalone build)."
-        )
-    subprocess.Popen([
-        updater_exe,
-        "--old-dir", APP_ROOT,
-        "--new-dir", NEW_DIR,
-        "--exe-name", APP_EXE_NAME,
-        "--wait-retries", "60",
-        "--wait-delay", "1",
-    ])
+    new_exe = os.path.join(FAMILY_ROOT, remote_version, APP_EXE_NAME)
+    if not os.path.isfile(new_exe):
+        raise FileNotFoundError(f"Novi exe nije pronađen na {new_exe}")
+
+    tmp_pointer = POINTER_FILE + ".tmp"
+    with open(tmp_pointer, "w", encoding="utf-8") as f:
+        f.write(remote_version)
+    os.replace(tmp_pointer, POINTER_FILE)  # atomično na istom volumenu
+
+    time.sleep(0.3)  # da se Qt prozori stignu zatvoriti prije nego novi krene
+    subprocess.Popen([new_exe], cwd=os.path.dirname(new_exe))
     os._exit(0)

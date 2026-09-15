@@ -27,3 +27,54 @@
 	kada odradimo sve te korake, ručno povećamo verziju u version.py i pušamo na git - tek to će uzrokovati update na ostalim računalima
 	
 	
+	
+	
+	
+	
+	
+	dist_dynamics/ u .gitignore
+	
+	cd D:\Workout\Cycling\dynamics_app 
+	pa: nuitka --standalone --enable-plugin=pyqt6 --output-filename=dynamics_app.exe --output-dir=dist_dynamics main.py
+	
+	Prvi put BEZ --windows-console-mode=disable da vidis eventualne greske. Ovo moze potrajati par minuta.	
+	
+	Nakon builda otvori dist_dynamics\main.dist\ i provjeri da 'updater' podfolder (s updater.exe unutra) jos uvijek postoji 
+	- Nuitka ne bi trebala dirati taj podfolder jer ga ne poznaje, ali provjeri prije nego nastavis.
+	
+	Pokreni dist_dynamics\main.dist\dynamics_app.exe DIREKTNO iz build foldera. 
+	Provjeri da se app otvara, da se HR/power pairing i cijeli dashboard ponasaju isto kao kod 'python main.py'. 
+	Ako puca s ModuleNotFoundError za neki paket (openant, libusb_package, requests), javi mi tocnu gresku - rjesava se s --include-package flagom i rebuildom.
+	
+	Ovo je jednokratno: mkdir D:\Workout\Cycling\dynamics_app_run, 
+	pa kopiraj CIJELI SADRZAJ od dist_dynamics\main.dist\ (exe, sve DLL/pyd, updater\ podfolder) unutra. Ovo postaje tvoja 'instalirana', svakodnevno koristena verzija - odvojena od git source repoa.
+	
+	Odaberi broj verzije (npr. v0.20 - prva prava kompajlirana verzija) i to upisi u version.py UNUTAR git source repoa (D:\Workout\Cycling\dynamics_app\version.py). 
+	Ovo je plain-text fajl koji ostaje u repou za remote update-check, odvojeno od vrijednosti koja je 'zapecena' u sam exe.
+	
+	Udji u dist_dynamics\main.dist\ i zippaj SVE STO JE UNUTRA (ne sam folder) - to postaje novi D:\Workout\Cycling\dynamics_app\dist\dynamics_app_latest.zip (overwrite postojeci fajl u source repou).
+	
+	git add, commit, push - ide azurirani version.py i novi binarni dist/dynamics_app_latest.zip. 
+	Ovo je push koji 'aktivira' update za sve buduce instalacije (ukljucujuci ovu koju si upravo rucno instalirao u _run folder - iduci put ce se sam auto-updateati kad opet bumpas verziju).
+	
+	
+	
+	komanda za compile updatera ako ga nekada budemo mijenjali
+	nuitka --standalone --windows-console-mode=disable --output-dir=dist_updater updater.py
+	
+	odustali od updatera, sad imamo launcher
+	nuitka --standalone --windows-console-mode=disable --output-dir=dist_launcher launcher.py
+	
+	
+D:\Portable\Apps\
+├── dynamics_app\
+│   ├── dynamics_app.exe
+│   ├── updater\
+│   │   └── updater.exe
+│   └── ... (DLL/pyd)
+├── tacx_app\
+│   ├── tacx_app.exe
+│   ├── updater\
+│   │   └── updater.exe
+│   └── ...
+	
