@@ -1,0 +1,29 @@
+
+1. za testiranje i git
+	- kad napravimo neki update u programu
+	- testiramo i pušamo na git
+	- neće se automatski povećavati verzija u version.py
+	- kao i do sad pokrećemo python main.py
+  
+2. za compile i distribuciju
+   nuitka --standalone --enable-plugin=pyqt6 --output-filename=dynamics_app.exe --output-dir=dist_dynamics main.py
+   
+   Ubaci vec kompajlirani updater.exe unutra
+   Rezultat prethodnog koraka je folder 'dist_dynamics\main.dist\' (sadrzi dynamics_app.exe + sve DLL/pyd ovisnosti). 
+   Unutar TOG foldera napravi podfolder 'updater\' i u njega stavi cijeli sadrzaj od 'updater.dist' foldera 
+   Struktura mora biti: main.dist\updater\updater.exe (+ ovisnosti).
+   
+	Udji u 'dist_dynamics\main.dist\' i zippaj SVE STO JE UNUTRA (dynamics_app.exe, sve DLL/pyd, updater\ podfolder) tako da zip kad se otvori odmah pokazuje te fajlove na top-levelu 
+	- NE umotano u dodatni 'dynamics_app\' folder kao sto smo radili dosad s python-source zipovima. 
+	To je nova konvencija otkad update extracta u cist sibling folder.   
+	
+	Taj zip (sad je binaran, sadrzi kompajlirane fajlove, ne python source) ide u git repo na putanju dist/dynamics_app_latest.zip, overwrite postojeci. 
+	To je ono sto ce buduci useri (i tvoj drugi komp) automatski skidati preko auto-update mehanizma.
+	
+	Prvi put na svakom racunalu (ukljucujuci tvoj glavni komp) MORAS rucno raspakirati taj isti zip (sadrzaj main.dist + updater\) u 
+	D:\Workout\Cycling\dynamics_app - to je isto ime foldera kao dosad, jer to postaje APP_ROOT. 
+	Nakon ovog prvog puta, sve daljnje verzije se same skidaju i instaliraju preko naseg mehanizma - vise ne treba rucno raspakiravati.
+	
+	kada odradimo sve te korake, ručno povećamo verziju u version.py i pušamo na git - tek to će uzrokovati update na ostalim računalima
+	
+	
