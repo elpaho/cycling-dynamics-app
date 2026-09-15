@@ -1,3 +1,14 @@
+# nuitka-project: --standalone
+# nuitka-project: --enable-plugin=pyqt6
+# nuitka-project: --output-filename=dynamics_app.exe
+# nuitka-project: --include-package-data=certifi
+# nuitka-project: --include-package=openant
+# nuitka-project: --include-package=libusb_package
+# nuitka-project: --include-package-data=libusb_package
+# nuitka-project: --windows-console-mode=force
+# ^ force = konzola VIDLJIVA za sad (radi print/error outputa dok testiramo).
+#   Kad sve bude stabilno, promijeni na --windows-console-mode=disable i rebuildaj.
+
 import sys
 
 from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
