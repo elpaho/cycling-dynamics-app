@@ -1,11 +1,34 @@
 """
-Auto-update preko GitHuba.
-Isti pattern kao tacx-trainer-app: version.py + dist/<app>_latest.zip na GitHubu,
-provjera preko raw.githubusercontent.com, download + raspakiravanje preko trenutne
-instalacije, restart preko subprocess.Popen + os._exit(0) (Windows-safe).
+Auto-update preko GitHuba, prilagođeno za Nuitka standalone distribuciju.
+
+Zašto ne raspakiravamo preko sebe kao ranije: kompajlirani .exe (i svaki
+DLL/pyd koji je učitao) je Windows-lockan dok proces radi, pa se ne može
+prepisati "u hodu", niti se app može sam restartati python-relaunch
+trikom (nema više python.exe, samo standalone exe).
+
+Novi flow:
+1. Skini zip i raspakiraj ga u SIBLING folder (APP_ROOT + "_new") - ovo je
+   siguran korak, ne dira fajlove koje trenutni proces koristi.
+2. Pozovi odvojeni updater.exe (folder-swap helper, kompajliran zasebno
+   Nuitkom, živi u APP_ROOT/updater/updater.exe) s --old-dir/--new-dir/
+   --exe-name, pa se odmah ugasi preko os._exit(0).
+3. updater.exe pričeka da se lock oslobodi, zamijeni folder, pokrene novi
+   .exe, ugasi se sam.
+
+VAŽNO: ovo pretpostavlja da je app pokrenut kao Nuitka standalone build s
+prisutnim APP_ROOT/updater/updater.exe. Pokretanje kao običan `python
+main.py` (dev mode bez tog foldera) će 'apply_update_and_restart' pucanjem
+ako updater.exe ne postoji - to je namjerno, da se odmah primijeti fali li
+nešto u distribuciji, a ne tiho ušuti grešku.
+
+Release zip (dist/dynamics_app_latest.zip) od sad treba sadržavati SADRŽAJ
+Nuitka .dist foldera direktno na top-levelu (exe + _internal/... itd), NE
+umotano u dodatni "dynamics_app/" folder - jer se sad extracta u čist
+sibling folder, ne preko postojeće instalacije.
 """
 import os
 import sys
+import shutil
 import time
 import zipfile
 import subprocess
@@ -25,6 +48,11 @@ VERSION_URL = f"{RAW_BASE}/version.py"
 ZIP_URL = f"{RAW_BASE}/dist/dynamics_app_latest.zip"
 
 APP_ROOT = os.path.dirname(os.path.abspath(sys.argv[0]))
+NEW_DIR = APP_ROOT + "_new"
+
+UPDATER_SUBDIR = "updater"
+UPDATER_EXE_NAME = "updater.exe"
+APP_EXE_NAME = "dynamics_app.exe"
 
 
 def _version_tuple(v: str) -> tuple:
@@ -70,7 +98,18 @@ class UpdateChecker(QObject):
             self.check_failed.emit(str(e))
 
     def download_and_install(self):
+        """Skida zip i raspakirava ga u NEW_DIR (sibling folder) - NE preko APP_ROOT."""
+        print(f"[update] APP_ROOT={APP_ROOT}")
+        print(f"[update] NEW_DIR={NEW_DIR}")
         try:
+            if os.path.exists(NEW_DIR):
+                shutil.rmtree(NEW_DIR, ignore_errors=True)
+            os.makedirs(NEW_DIR, exist_ok=True)
+
+            old_backup = APP_ROOT + "_old"
+            if os.path.exists(old_backup):
+                shutil.rmtree(old_backup, ignore_errors=True)
+
             with requests.get(ZIP_URL, stream=True, timeout=30) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("Content-Length", 0))
@@ -89,12 +128,31 @@ class UpdateChecker(QObject):
                             self.progress.emit(-1)
 
             with zipfile.ZipFile(tmp_path, "r") as zf:
-                zf.extractall(APP_ROOT)
+                self._extract_with_retry(zf, NEW_DIR)
 
             os.remove(tmp_path)
-            self.download_done.emit(True, "Update installed.")
+            self.download_done.emit(True, "Update downloaded.")
         except Exception as e:
             self.download_done.emit(False, str(e))
+
+    @staticmethod
+    def _extract_with_retry(zf: zipfile.ZipFile, target_dir: str, retries: int = 15, delay: float = 1.5):
+        """
+        extractall() zna pući s PermissionError ako Windows Defender (ili
+        neki drugi AV) nakratko zaključa svježe napisanu DLL/exe datoteku dok
+        je skenira - obično prođe unutar par sekundi. Retry cijelog
+        extractall-a je jednostavnije i sigurnije nego pokušavati preskočiti
+        pojedinačne fajlove.
+        """
+        last_error = None
+        for attempt in range(1, retries + 1):
+            try:
+                zf.extractall(target_dir)
+                return
+            except PermissionError as e:
+                last_error = e
+                time.sleep(delay)
+        raise last_error
 
 
 class UpdateWorker(QThread):
@@ -111,13 +169,26 @@ class UpdateWorker(QThread):
             self.checker.download_and_install()
 
 
-def restart_app():
-    """Restartaj aplikaciju - Windows kompatibilno (subprocess.Popen + os._exit)."""
-    python = sys.executable
-    script = os.path.abspath(sys.argv[0])
-    time.sleep(0.5)  # da se Qt prozori stignu zatvoriti
-    subprocess.Popen(
-        [python, script],
-        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-    )
+def apply_update_and_restart():
+    """
+    Zove se NAKON uspješnog download_and_install() (NEW_DIR već postoji i
+    popunjen je). Pokreće odvojeni updater.exe koji čeka da se ovaj proces
+    ugasi, zamijeni APP_ROOT sadržajem iz NEW_DIR, i pokrene novi .exe.
+
+    Odmah nakon pokretanja updatera gasimo se preko os._exit(0) - ne radimo
+    nikakav cleanup nakon ovoga, updater.exe pretpostavlja da ćemo umrijeti
+    za par trenutaka.
+    """
+    updater_exe = os.path.join(APP_ROOT, UPDATER_SUBDIR, UPDATER_EXE_NAME)
+    if not os.path.isfile(updater_exe):
+        raise FileNotFoundError(
+            f"updater.exe nije pronađen na {updater_exe} - provjeri da je "
+            f"'{UPDATER_SUBDIR}/' folder dio distribucije (Nuitka standalone build)."
+        )
+    subprocess.Popen([
+        updater_exe,
+        "--old-dir", APP_ROOT,
+        "--new-dir", NEW_DIR,
+        "--exe-name", APP_EXE_NAME,
+    ])
     os._exit(0)

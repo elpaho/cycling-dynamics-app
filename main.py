@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from PyQt6.QtCore import Qt, QTimer
 
 from version import VERSION
-from updater import UpdateChecker, UpdateWorker, restart_app
+from updater import UpdateChecker, UpdateWorker, apply_update_and_restart
 from ui.main_window import MainWindow, DARK_STYLESHEET
 
 
@@ -59,8 +59,11 @@ def _download_update(app, window, checker: UpdateChecker):
     def on_done(success: bool, message: str):
         progress.close()
         if success:
-            QMessageBox.information(window, "Update", "Update installed. The app will restart.")
-            restart_app()
+            QMessageBox.information(window, "Update", "Update downloaded. The app will restart.")
+            try:
+                apply_update_and_restart()
+            except FileNotFoundError as e:
+                QMessageBox.critical(window, "Update failed", str(e))
         else:
             QMessageBox.warning(window, "Update failed", f"Could not install update:\n{message}")
 
