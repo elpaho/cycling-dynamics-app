@@ -55,6 +55,12 @@ RAW_BASE = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/{GITH
 VERSION_URL = f"{RAW_BASE}/version.py"
 ZIP_URL = f"{RAW_BASE}/dist/dynamics_app_latest.zip"
 
+
+def _no_cache_url(url: str) -> str:
+    """raw.githubusercontent.com zna cache-irati par minuta preko CDN-a -
+    timestamp query param tjera svjez fetch svaki put."""
+    return f"{url}?_={int(time.time())}"
+
 # VERSION_DIR = folder u kojem trenutno živi POKRENUTI dynamics_app.exe
 # (npr. ...\Cycling Dynamics\v0.21). FAMILY_ROOT je jedan nivo iznad - tu
 # žive svi verzionirani podfolderi, current.txt i launcher.exe.
@@ -96,7 +102,7 @@ class UpdateChecker(QObject):
 
     def check_for_update(self):
         try:
-            resp = requests.get(VERSION_URL, timeout=8)
+            resp = requests.get(_no_cache_url(VERSION_URL), timeout=8)
             resp.raise_for_status()
             remote_version = _parse_remote_version(resp.text)
             if remote_version and _version_tuple(remote_version) > _version_tuple(VERSION):
@@ -115,7 +121,7 @@ class UpdateChecker(QObject):
                 shutil.rmtree(target_dir, ignore_errors=True)
             os.makedirs(target_dir, exist_ok=True)
 
-            with requests.get(ZIP_URL, stream=True, timeout=30) as resp:
+            with requests.get(_no_cache_url(ZIP_URL), stream=True, timeout=30) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0

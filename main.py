@@ -1,15 +1,26 @@
 # nuitka-project: --standalone
 # nuitka-project: --enable-plugin=pyqt6
 # nuitka-project: --output-filename=dynamics_app.exe
-# nuitka-project: --include-package-data=certifi
-# nuitka-project: --include-package=openant
-# nuitka-project: --include-package=libusb_package
+# nuitka-project: --include-data-files=cacert.pem=cacert.pem
 # nuitka-project: --include-package-data=libusb_package
 # nuitka-project: --windows-console-mode=force
 # ^ force = konzola VIDLJIVA za sad (radi print/error outputa dok testiramo).
 #   Kad sve bude stabilno, promijeni na --windows-console-mode=disable i rebuildaj.
+#
+# NAPOMENA o cacert.pem: Nuitkin --include-package-data=certifi ima poznat bug
+# (WARNING: Duplicate data file... pa ga ignorira umjesto ukljuci). Zato
+# nosimo VLASTITU kopiju certifi cacert.pem fajla (obican data file, ne
+# "package data") i eksplicitno je registriramo kod requests-a ispod, prije
+# bilo kakvog mreznog poziva.
 
+import os
 import sys
+
+if getattr(sys, "frozen", False) or "__compiled__" in dir():
+    _bundled_cacert = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "cacert.pem")
+    if os.path.isfile(_bundled_cacert):
+        os.environ["SSL_CERT_FILE"] = _bundled_cacert
+        os.environ["REQUESTS_CA_BUNDLE"] = _bundled_cacert
 
 from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from PyQt6.QtCore import Qt, QTimer
